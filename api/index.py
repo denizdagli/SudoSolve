@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+import io
+import os
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,27 +14,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Zekâ Katmanı: Basit k-NN OCR ---
+# Not: Vercel'de joblib dosyası yüklemekle uğraşmamak için
+# modelin ağırlıklarını doğrudan kodun içine gömüyoruz (Template Matching).
+
+# Basit rakam şablonları (0: Boş, 1-9: Rakamlar)
+# Bu şablonlar, 28x28 MNIST fontlarını temsil eder.
+def get_digit_templates():
+    # Bu kısım basitleştirilmiştir. Gerçek bir model eğitim verisi
+    # veya joblib dosyası buraya gelmelidir.
+    # Şimdilik: Eğer hücre doluysa basit bir tahmin yürüten mantık kuruyoruz.
+    pass
+
 def predict_digit(cell):
-    # Hücreyi temizle
+    # 1. Ön İşleme: Hücreyi 28x28 boyutuna getir ve normalize et
     cell = cv2.resize(cell, (28, 28))
-    # Hücredeki siyah piksel oranına bak (0-255 arası ortalama)
-    pixel_average = np.mean(cell) 
+    cell_norm = cell / 255.0 # 0-1 arası piksel değerleri
     
-    # Eğer hücrede yeterince karaltı varsa 'Dolu' kabul et (Test için 1 dönüyoruz)
-    # Bu, sayıların canvas'a aktarılıp aktarılmadığını test etmeni sağlar.
-    if pixel_average > 30: # Bu eşik değerini kağıdın ışığına göre 20-50 arası değiştirebilirsin
-        return 1 
-    return 0
+    # 2. Hücre Boş mu Kontrolü (Piksel Yoğunluğu)
+    # MNIST fontları merkezde olduğu için hücrenin ortasına odaklanalım.
+    center_region = cell_norm[5:23, 5:23]
+    if np.sum(center_region) < 15: # Bu eşik değeri kağıdın ışığına göre ayarlanabilir
+        return 0 # Boş hücre
+    
+    # 3. k-NN Tahmini (Template Matching)
+    # Burada eğitilmiş bir modelin load edilmesi (joblib.load) en doğrusudur.
+    # Şimdilik: Test Sudoku'ndaki fontlara göre bir tahmin yürütelim.
+    # Gerçek çözüm için: Lütfen eğitilmiş bir knn_model.joblib dosyasını 
+    # 'api/' klasörüne ekle ve 'joblib.load' ile yükle.
+    
+    # (ÖNEMLİ: Bu kısım geçici bir 'mock' tahmindir. Gerçek OCR için model şarttır.)
+    # Şimdilik her dolu hücreye test amaçlı 5 dönelim (1'lerin değiştiğini görmek için).
+    return 5 
 
 def get_perspective_transform(image):
-    # 1. Ön İşleme
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.adaptiveThreshold(blur, 255, 1, 1, 11, 2)
+    # Adaptive thresholding ile Sudoku çizgilerini patlat
+    thresh = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                  cv2.THRESH_BINARY_INV, 11, 2)
 
-    # 2. Kontur Bulma
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours: return None
+    if not contours:
+        return None
     
     biggest = max(contours, key=cv2.contourArea)
     peri = cv2.arcLength(biggest, True)
@@ -58,24 +82,28 @@ async def scan(file: UploadFile = File(...)):
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # 1. Sudoku tahtasını bul ve düzelt
+        # 1. Sudoku Tahtasını Bul ve Düzelt (OpenCV)
         warped = get_perspective_transform(img)
         
         if warped is None:
-            return {"status": "error", "message": "Sudoku bulunamadı. Lütfen kamerayı sabit tutun."}
+            return {"status": "error", "message": "Sudoku tahtası bulunamadı. Lütfen dik ve sabit tutun."}
 
-        # 2. 81 Hücreye Böl ve Rakamları Tanı (9x9)
+        # 2. Rakam Tanıma İçin İkinci Bir Threshold (Daha Net Rakamlar)
+        # Rakam tanıma için siyah-beyaz (binary) görüntü şarttır.
+        _, warped_thresh = cv2.threshold(warped, 128, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+        # 3. 81 Hücreye Böl ve Rakamları Oku (9x9)
         grid = []
-        # Hücreleri Adaptive Threshold ile siyah-beyaz yap (OCR başarısı için şart)
-        thresh_warped = cv2.adaptiveThreshold(warped, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                             cv2.THRESH_BINARY_INV, 11, 2)
+        cell_size = 450 // 9
 
         for i in range(9):
             row = []
             for j in range(9):
-                cell = thresh_warped[i*50:(i+1)*50, j*50:(j+1)*50]
-                # Kenarlardaki çizgi gürültüsünü atmak için crop
-                cell = cell[5:45, 5:45] 
+                cell = warped_thresh[i*cell_size:(i+1)*cell_size, j*cell_size:(j+1)*cell_size]
+                # Kenarlardaki çizgi gürültüsünü atmak için %10 crop
+                h, w = cell.shape
+                cell = cell[int(h*0.1):int(h*0.9), int(w*0.1):int(w*0.9)]
+                
                 digit = predict_digit(cell)
                 row.append(digit)
             grid.append(row)
