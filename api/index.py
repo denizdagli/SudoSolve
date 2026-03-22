@@ -13,21 +13,16 @@ app.add_middleware(
 )
 
 def predict_digit(cell):
-    # 1. Hücreyi temizle ve standart boyuta getir (MNIST boyutu: 28x28)
+    # Hücreyi temizle
     cell = cv2.resize(cell, (28, 28))
+    # Hücredeki siyah piksel oranına bak (0-255 arası ortalama)
+    pixel_average = np.mean(cell) 
     
-    # 2. Piksel Yoğunluğu Kontrolü (Hücre boş mu?)
-    # Eğer siyah piksel sayısı çok azsa hücre boştur
-    if np.sum(cell) < 500: # Eşik değeri (Sudoku kağıdına göre ayarlanabilir)
-        return 0
-    
-    # 3. k-NN veya Basit Şablon Eşleştirme Modeli
-    # Buraya ileride 'joblib.load' ile kendi eğitilmiş modelini ekleyebilirsin
-    # joblib.load('api/knn_model.joblib')
-    
-    # Şimdilik: Test amaçlı dolu hücreye 1 dönelim.
-    # Gerçek çözüm için bir MNIST modeli eğitip buraya entegre etmelisin.
-    return 1 
+    # Eğer hücrede yeterince karaltı varsa 'Dolu' kabul et (Test için 1 dönüyoruz)
+    # Bu, sayıların canvas'a aktarılıp aktarılmadığını test etmeni sağlar.
+    if pixel_average > 30: # Bu eşik değerini kağıdın ışığına göre 20-50 arası değiştirebilirsin
+        return 1 
+    return 0
 
 def get_perspective_transform(image):
     # 1. Ön İşleme
