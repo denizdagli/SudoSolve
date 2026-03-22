@@ -19,7 +19,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import type { CellValue, AppView, SudokuGrid as SudokuGridType } from './types';
 import { solveSudokuWithTiming, validatePuzzle } from './Solver';
-import { processImage } from './OCRProcessor';
+
 import SudokuGridComponent from './components/SudokuGrid';
 import CameraInput from './components/CameraInput';
 
@@ -85,26 +85,36 @@ export default function App() {
     setView('editor');
   };
 
-  // ─── Camera capture → OCR ───
+  // ─── Camera capture → Backend API ───
   const handleCameraCapture = async (canvas: HTMLCanvasElement) => {
     setView('processing');
-    setProcessingMessage('Initializing OCR engine...');
+    setProcessingMessage('Sending to Python backend...');
 
     try {
-      setProcessingMessage('Segmenting grid cells...');
-      await new Promise(r => setTimeout(r, 500));
+      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+      if (!blob) throw new Error('Could not create image blob');
 
-      setProcessingMessage('Recognizing digits...');
-      const result = await processImage(canvas);
+      const formData = new FormData();
+      formData.append('file', blob, 'capture.jpg');
 
-      setProcessingMessage('Building grid...');
-      await new Promise(r => setTimeout(r, 300));
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        body: formData,
+      });
 
-      const cellGrid = toCellGrid(result);
+      if (!res.ok) throw new Error('API request failed');
+
+      const data = await res.json();
+      if (data.status !== 'success') {
+        throw new Error(data.message || 'API processing failed');
+      }
+
+      console.log('Received Grid:', data.grid);
+      const cellGrid = toCellGrid(data.grid);
       setupGrid(cellGrid);
-    } catch (err) {
+    } catch (err: any) {
       console.error('OCR failed:', err);
-      setErrorMessage('OCR processing failed. Try again or enter manually.');
+      setErrorMessage(err.message || 'OCR processing failed. Try again or enter manually.');
       setView('editor');
       setGrid(createEmptyGrid());
       setFixedCells(createEmptyFixed());
@@ -121,27 +131,33 @@ export default function App() {
       if (!file) return;
 
       setView('processing');
-      setProcessingMessage('Loading image...');
-
-      const url = URL.createObjectURL(file);
+      setProcessingMessage('Sending image to Python backend...');
 
       try {
-        setProcessingMessage('Recognizing digits...');
-        const result = await processImage(url);
+        const formData = new FormData();
+        formData.append('file', file);
 
-        setProcessingMessage('Building grid...');
-        await new Promise(r => setTimeout(r, 300));
+        const res = await fetch('/api/scan', {
+          method: 'POST',
+          body: formData,
+        });
 
-        const cellGrid = toCellGrid(result);
+        if (!res.ok) throw new Error('API request failed');
+
+        const data = await res.json();
+        if (data.status !== 'success') {
+          throw new Error(data.message || 'API processing failed');
+        }
+
+        console.log('Received Grid:', data.grid);
+        const cellGrid = toCellGrid(data.grid);
         setupGrid(cellGrid);
-      } catch (err) {
+      } catch (err: any) {
         console.error('OCR failed:', err);
-        setErrorMessage('OCR processing failed. Try again or enter manually.');
+        setErrorMessage(err.message || 'OCR processing failed. Try again or enter manually.');
         setView('editor');
         setGrid(createEmptyGrid());
         setFixedCells(createEmptyFixed());
-      } finally {
-        URL.revokeObjectURL(url);
       }
     };
     input.click();
