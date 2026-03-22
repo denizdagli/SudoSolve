@@ -2,6 +2,9 @@ import cv2
 import numpy as np
 import io
 import os
+import joblib
+import io
+import os
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,37 +18,33 @@ app.add_middleware(
 )
 
 # --- Zekâ Katmanı: Basit k-NN OCR ---
-# Not: Vercel'de joblib dosyası yüklemekle uğraşmamak için
-# modelin ağırlıklarını doğrudan kodun içine gömüyoruz (Template Matching).
-
-# Basit rakam şablonları (0: Boş, 1-9: Rakamlar)
-# Bu şablonlar, 28x28 MNIST fontlarını temsil eder.
-def get_digit_templates():
-    # Bu kısım basitleştirilmiştir. Gerçek bir model eğitim verisi
-    # veya joblib dosyası buraya gelmelidir.
-    # Şimdilik: Eğer hücre doluysa basit bir tahmin yürüten mantık kuruyoruz.
-    pass
+try:
+    knn_model = joblib.load('api/knn_model.joblib')
+    print("k-NN modeli başarıyla yüklendi.")
+except Exception as e:
+    print(f"Model yüklenemedi: {e}")
+    knn_model = None
 
 def predict_digit(cell):
-    # 1. Ön İşleme: Hücreyi 28x28 boyutuna getir ve normalize et
-    cell = cv2.resize(cell, (28, 28))
-    cell_norm = cell / 255.0 # 0-1 arası piksel değerleri
+    # 1. Ön İşleme ve Normalizasyon
+    cell_28 = cv2.resize(cell, (28, 28))
+    cell_norm = cell_28 / 255.0 # 0-1 arası piksel değerleri
     
     # 2. Hücre Boş mu Kontrolü (Piksel Yoğunluğu)
-    # MNIST fontları merkezde olduğu için hücrenin ortasına odaklanalım.
     center_region = cell_norm[5:23, 5:23]
     if np.sum(center_region) < 15: # Bu eşik değeri kağıdın ışığına göre ayarlanabilir
         return 0 # Boş hücre
+        
+    if knn_model is None:
+        return 5
     
-    # 3. k-NN Tahmini (Template Matching)
-    # Burada eğitilmiş bir modelin load edilmesi (joblib.load) en doğrusudur.
-    # Şimdilik: Test Sudoku'ndaki fontlara göre bir tahmin yürütelim.
-    # Gerçek çözüm için: Lütfen eğitilmiş bir knn_model.joblib dosyasını 
-    # 'api/' klasörüne ekle ve 'joblib.load' ile yükle.
+    # 3. k-NN Tahmini
+    # sklearn.datasets.load_digits 8x8 boyutlarındadır ve 0-16 arası değerler alır.
+    cell_8x8 = cv2.resize(cell, (8, 8))
+    cell_features = (cell_8x8 / 255.0 * 16.0).reshape(1, -1)
     
-    # (ÖNEMLİ: Bu kısım geçici bir 'mock' tahmindir. Gerçek OCR için model şarttır.)
-    # Şimdilik her dolu hücreye test amaçlı 5 dönelim (1'lerin değiştiğini görmek için).
-    return 5 
+    prediction = knn_model.predict(cell_features)
+    return int(prediction[0])
 
 def get_perspective_transform(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
