@@ -2,3 +2,5 @@ fastapi
 python-multipart
 opencv-python-headless
 numpy
+scikit-learn
+joblib
