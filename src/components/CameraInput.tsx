@@ -69,9 +69,11 @@ export default function CameraInput({ onCapture, onClose }: CameraInputProps) {
 
     const ctx = canvas.getContext('2d')!;
     
-    // Reverse the mirroring applied in the UI so backend/OCR receives correct orientation
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
+    // Reverse the mirroring applied in the UI if using front camera so backend/OCR receives correct orientation
+    if (facingMode === 'user') {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
     
     ctx.drawImage(video, offsetX, offsetY, size, size, 0, 0, size, size);
 
@@ -133,7 +135,7 @@ export default function CameraInput({ onCapture, onClose }: CameraInputProps) {
           autoPlay
           playsInline
           muted
-          className="absolute inset-0 w-full h-full object-cover [transform:scaleX(-1)]"
+          className={`absolute inset-0 w-full h-full object-cover ${facingMode === 'user' ? '[transform:scaleX(-1)]' : ''}`}
         />
 
         {/* Grid overlay */}
