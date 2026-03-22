@@ -1,0 +1,4 @@
+fastapi
+python-multipart
+opencv-python-headless
+numpy
