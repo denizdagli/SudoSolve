@@ -2,9 +2,7 @@ import cv2
 import numpy as np
 import io
 import os
-import joblib
-import io
-import os
+import joblib # YENİ: Model yüklemek için
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,39 +15,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Zekâ Katmanı: Basit k-NN OCR ---
-try:
-    knn_model = joblib.load('api/knn_model.joblib')
-    print("k-NN modeli başarıyla yüklendi.")
-except Exception as e:
-    print(f"Model yüklenemedi: {e}")
-    knn_model = None
+# --- Zekâ Katmanı: k-NN OCR Entegrasyonu ---
+# Vercel sunucusunda model dosyasının yolunu bul (Relative path)
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'knn_model.joblib')
+
+# Modeli yüklüyoruz (Cachelemek için globalde tutuyoruz)
+knn = None
+if os.path.exists(MODEL_PATH):
+    knn = joblib.load(MODEL_PATH)
+    print("Model başarıyla yüklendi!")
+else:
+    print(f"HATA: Model dosyası bulunamadı! Yol: {MODEL_PATH}")
 
 def predict_digit(cell):
-    # 1. Ön İşleme ve Normalizasyon
-    cell_28 = cv2.resize(cell, (28, 28))
-    cell_norm = cell_28 / 255.0 # 0-1 arası piksel değerleri
+    global knn
+    # 1. Ön İşleme: Hücreyi modelin beklediği formata (28x28 grayscale) getir ve normalize et
+    # 28x28 MNIST fontları için standart boyuttur.
+    # Not: Modelin eğitim verisi (datasets.load_digits()) 8x8 veya 28x28 olabilir.
+    # Bizim train_knn.py dosyamız load_digits() kullandığı için 8x8 resize yapmalıyız.
+    cell = cv2.resize(cell, (8, 8)) # train_knn.py'daki verisetine göre (load_digits=8x8)
+    cell_norm = (cell / 255.0) * 16.0 # load_digits veriseti 0-16 arası piksel değerleri bekler.
     
     # 2. Hücre Boş mu Kontrolü (Piksel Yoğunluğu)
-    center_region = cell_norm[5:23, 5:23]
-    if np.sum(center_region) < 15: # Bu eşik değeri kağıdın ışığına göre ayarlanabilir
+    # MNIST fontları merkezde olduğu için hücrenin ortasına odaklanalım.
+    center_region = cell_norm[1:7, 1:7]
+    if np.sum(center_region) < 25: # Bu eşik değeri kağıdın ışığına göre ayarlanabilir
         return 0 # Boş hücre
-        
-    if knn_model is None:
-        return 5
     
     # 3. k-NN Tahmini
-    # sklearn.datasets.load_digits 8x8 boyutlarındadır ve 0-16 arası değerler alır.
-    cell_8x8 = cv2.resize(cell, (8, 8))
-    cell_features = (cell_8x8 / 255.0 * 16.0).reshape(1, -1)
+    if knn is None:
+        # Model yoksa test amaçlı dolu hücreye 1 dönmeye devam edelim (Test için)
+        return 1
     
-    prediction = knn_model.predict(cell_features)
-    return int(prediction[0])
+    # Veriyi modelin beklediği (1, 64) formatına çevir
+    cell_final = cell_norm.reshape(1, -1)
+    
+    # Tahmin yürüt
+    prediction = knn.predict(cell_final)
+    
+    return int(prediction[0]) 
 
 def get_perspective_transform(image):
+    # (Önceki OpenCV Perspektif kodu aynen kalıyor)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    # Adaptive thresholding ile Sudoku çizgilerini patlat
     thresh = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                   cv2.THRESH_BINARY_INV, 11, 2)
 
@@ -85,10 +94,10 @@ async def scan(file: UploadFile = File(...)):
         warped = get_perspective_transform(img)
         
         if warped is None:
-            return {"status": "error", "message": "Sudoku tahtası bulunamadı. Lütfen dik ve sabit tutun."}
+            return {"status": "error", "message": "Sudoku bulunamadı. Lütfen kamerayı sabit tutun."}
 
-        # 2. Rakam Tanıma İçin İkinci Bir Threshold (Daha Net Rakamlar)
-        # Rakam tanıma için siyah-beyaz (binary) görüntü şarttır.
+        # 2. Rakam Tanıma İçin İkinci Bir Threshold (Binary)
+        # Rakam tanıma için siyah-beyaz görüntü şarttır.
         _, warped_thresh = cv2.threshold(warped, 128, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
         # 3. 81 Hücreye Böl ve Rakamları Oku (9x9)
