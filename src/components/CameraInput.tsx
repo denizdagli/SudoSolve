@@ -68,6 +68,11 @@ export default function CameraInput({ onCapture, onClose }: CameraInputProps) {
     canvas.height = size;
 
     const ctx = canvas.getContext('2d')!;
+    
+    // Reverse the mirroring applied in the UI so backend/OCR receives correct orientation
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    
     ctx.drawImage(video, offsetX, offsetY, size, size, 0, 0, size, size);
 
     // Stop camera
