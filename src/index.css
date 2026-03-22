@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "Fira Code", monospace;
+
+  /* Deep dark IDE palette */
+  --color-deep-black: #0a0a0f;
+  --color-surface: #111118;
+  --color-surface-high: #1a1a24;
+  --color-surface-higher: #222230;
+  --color-surface-highest: #2a2a3a;
+
+  /* Accent colors */
+  --color-terminal-green: #00FF41;
+  --color-terminal-green-dim: #00cc34;
+  --color-python-yellow: #FFD43B;
+  --color-python-yellow-dim: #e6bf35;
+
+  /* Text */
+  --color-text-primary: #e8e8f0;
+  --color-text-secondary: #8888a0;
+  --color-text-dim: #555570;
+
+  /* Grid */
+  --color-grid-line: rgba(255, 255, 255, 0.08);
+
+  /* Glow effects */
+  --color-glow-green: rgba(0, 255, 65, 0.15);
+  --color-glow-yellow: rgba(255, 212, 59, 0.1);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-deep-black text-text-primary font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Prevent text selection on interactive elements */
+  button {
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* ─── Glass Panel ─── */
+.glass-panel {
+  @apply backdrop-blur-xl;
+  background: rgba(17, 17, 24, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ─── Sudoku Board ─── */
+.sudoku-board {
+  background: linear-gradient(135deg, rgba(0, 255, 65, 0.03), transparent 50%, rgba(255, 212, 59, 0.02));
+  border-radius: 12px;
+  padding: 2px;
+}
+
+/* ─── Scanline Animation ─── */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-terminal-green), transparent);
+  animation: scanline 3s linear infinite;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* ─── Pulse Glow ─── */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(0, 255, 65, 0.1); }
+  50% { box-shadow: 0 0 40px rgba(0, 255, 65, 0.25); }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ─── Terminal Cursor Blink ─── */
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+/* ─── Processing Dots ─── */
+@keyframes dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+/* ─── Grid Cell Reveal Animation ─── */
+@keyframes cell-reveal {
+  0% { opacity: 0; transform: scale(0.5); }
+  50% { opacity: 1; transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.cell-reveal {
+  animation: cell-reveal 0.3s ease-out forwards;
+}
+
+/* ─── Float Animation ─── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ─── Matrix Rain Background ─── */
+@keyframes matrix-fade {
+  0% { opacity: 0; transform: translateY(-20px); }
+  10% { opacity: 0.3; }
+  90% { opacity: 0.3; }
+  100% { opacity: 0; transform: translateY(20px); }
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

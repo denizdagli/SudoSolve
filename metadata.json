@@ -1,0 +1,7 @@
+{
+  "name": "Sudo Solve",
+  "description": "Instant Sudoku recognition and solving with a Zen-inspired editorial design.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
