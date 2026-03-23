@@ -32,3 +32,10 @@ coverage/
 # Misc
 *.tsbuildinfo
 .eslintcache
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
