@@ -6,15 +6,17 @@ import google.generativeai as genai
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from typing import Optional, List
 
 load_dotenv()
 
 # Gemini Yapılandırması
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # Kullanıcı tarafından belirtilen özel model
-MODEL_NAME = "gemini-3.1-pro-preview"
+MODEL_NAME: str = "gemini-3.1-pro-preview"
 
 app = FastAPI()
 
@@ -66,12 +68,12 @@ def get_perspective_transform(image):
             side = 900 
             dst = np.array([[0, 0], [side, 0], [side, side], [0, side]], dtype="float32")
             M = cv2.getPerspectiveTransform(rect, dst)
-            warped = cv2.warpPerspective(image, M, (side, side)) # Orijinal renkli görüntüyü warp et
+            warped = cv2.warpPerspective(image, M, (side, side))
             return warped
             
     return None
 
-async def gemini_ocr(image_bytes):
+async def gemini_ocr(image_bytes: bytes) -> Optional[List[List[int]]]:
     """
     Gemini API kullanarak Sudoku gridini tanı.
     """
@@ -86,7 +88,6 @@ async def gemini_ocr(image_bytes):
         Markdown veya açıklama ekleme, sadece JSON.
         """
         
-        # Görüntüyü hazırla
         contents = [
             prompt,
             {
@@ -96,16 +97,17 @@ async def gemini_ocr(image_bytes):
         ]
         
         response = model.generate_content(contents)
-        text_response = response.text.strip()
+        text_response: str = response.text.strip()
         
-        # Markdown kod bloklarını temizle (eğer varsa)
         if "```json" in text_response:
             text_response = text_response.split("```json")[1].split("```")[0].strip()
         elif "```" in text_response:
             text_response = text_response.split("```")[1].split("```")[0].strip()
             
         grid = json.loads(text_response)
-        return grid
+        if isinstance(grid, list):
+            return grid
+        return None
     except Exception as e:
         print(f"Gemini OCR Hatası: {e}")
         return None
@@ -120,28 +122,25 @@ async def scan(file: UploadFile = File(...)):
         nparr = np.frombuffer(data, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # 1. Sudoku karesini bul ve perspektifi düzelt
-        # (Gemini'nin daha odaklı çalışması için görüntüyü crop ediyoruz)
         warped = get_perspective_transform(img)
         
-        # Eğer perspektif bulunamazsa orijinal görüntüyü kullan (Gemini yine de çözebilir)
         if warped is not None:
             _, buffer = cv2.imencode(".jpg", warped)
         else:
             _, buffer = cv2.imencode(".jpg", img)
             
-        # 2. Gemini ile Tanıma
-        grid = await gemini_ocr(buffer.tobytes())
+        # Gemini ile Tanıma
+        result_grid: Optional[List[List[int]]] = await gemini_ocr(buffer.tobytes())
         
-        if grid is None:
+        if result_grid is None or not isinstance(result_grid, list):
             return {"status": "error", "message": "Gemini rakamları tanıyamadı."}
 
         # Kaç adet rakam okundu?
-        detected = sum(1 for row in grid for d in row if d > 0)
+        detected: int = sum(1 for row in result_grid for d in row if d > 0)
         
         return {
             "status": "success",
-            "grid": grid,
+            "grid": result_grid,
             "debug": {
                 "detected": detected,
                 "model": MODEL_NAME
