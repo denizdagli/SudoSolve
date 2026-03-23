@@ -15,8 +15,8 @@ GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# Kullanıcı tarafından belirtilen özel model
-MODEL_NAME: str = "gemini-3.1-pro-preview"
+# Kullanıcı tarafından belirtilen özel model (Hız için Flash sürümüne geçildi)
+MODEL_NAME: str = "gemini-1.5-flash"
 
 app = FastAPI()
 
