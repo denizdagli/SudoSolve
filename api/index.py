@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import io
 import os
-import joblib # YENİ: Model yüklemek için
+import pytesseract
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,50 +15,72 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Zekâ Katmanı: k-NN OCR Entegrasyonu ---
-# Vercel sunucusunda model dosyasının yolunu bul (Relative path)
-MODEL_PATH = os.path.join(os.path.dirname(__file__), 'knn_model.joblib')
+def clean_cell(cell):
+    """
+    Hücreyi temizle: Kenar gürültülerini kaldır, rakamı ortala ve Tesseract için hazırla.
+    """
+    # 1. Kenarlardaki gürültüleri (ızgara çizgileri) temizlemek için %15 crop
+    h, w = cell.shape
+    margin_h, margin_w = int(h * 0.15), int(w * 0.15)
+    cell = cell[margin_h:h-margin_h, margin_w:w-margin_w]
 
-# Modeli yüklüyoruz (Cachelemek için globalde tutuyoruz)
-knn = None
-if os.path.exists(MODEL_PATH):
-    knn = joblib.load(MODEL_PATH)
-    print("Model başarıyla yüklendi!")
-else:
-    print(f"HATA: Model dosyası bulunamadı! Yol: {MODEL_PATH}")
+    # 2. Bağlı bileşen analizi ile en büyük 'rakam' olabilecek parçayı bul
+    # (Bu, küçük gürültüleri tamamen temizler)
+    contours, _ = cv2.findContours(cell, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if not contours:
+        return None
+
+    # En büyük konturu bul (muhtemelen rakam)
+    cnt = max(contours, key=cv2.contourArea)
+    x, y, w_c, h_c = cv2.boundingRect(cnt)
+
+    # Çok küçük parçalar rakam değildir
+    if w_c < 5 or h_c < 10:
+        return None
+
+    # Rakamı kesip al
+    digit_crop = cell[y:y+h_c, x:x+w_c]
+
+    # 3. Rakamı 28x28 veya benzeri bir kareye ortala (Beyaz padding ile)
+    # Tesseract için etrafında biraz boşluk olması iyidir
+    pad = 10
+    digit_padded = cv2.copyMakeBorder(digit_crop, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+    
+    # Görüntüyü tersine çevir (Tesseract beyaz zemin üzerinde siyah rakam sever)
+    digit_final = cv2.bitwise_not(digit_padded)
+    
+    return digit_final
 
 def predict_digit(cell):
-    global knn
-    # 1. Ön İşleme: Hücreyi modelin beklediği formata (28x28 grayscale) getir ve normalize et
-    # 28x28 MNIST fontları için standart boyuttur.
-    # Not: Modelin eğitim verisi (datasets.load_digits()) 8x8 veya 28x28 olabilir.
-    # Bizim train_knn.py dosyamız load_digits() kullandığı için 8x8 resize yapmalıyız.
-    cell = cv2.resize(cell, (8, 8)) # train_knn.py'daki verisetine göre (load_digits=8x8)
-    cell_norm = (cell / 255.0) * 16.0 # load_digits veriseti 0-16 arası piksel değerleri bekler.
+    """
+    Tesseract kullanarak rakamı tanı.
+    """
+    cleaned = clean_cell(cell)
+    if cleaned is None:
+        return 0
+
+    # Tesseract konfigürasyonu: Sadece rakamlar (1-9), tek karakter modu (PSM 10)
+    custom_config = r'--oem 3 --psm 10 -c tessedit_char_whitelist=123456789'
     
-    # 2. Hücre Boş mu Kontrolü (Piksel Yoğunluğu)
-    # MNIST fontları merkezde olduğu için hücrenin ortasına odaklanalım.
-    center_region = cell_norm[1:7, 1:7]
-    if np.sum(center_region) < 25: # Bu eşik değeri kağıdın ışığına göre ayarlanabilir
-        return 0 # Boş hücre
-    
-    # 3. k-NN Tahmini
-    if knn is None:
-        # Model yoksa test amaçlı dolu hücreye 1 dönmeye devam edelim (Test için)
-        return 1
-    
-    # Veriyi modelin beklediği (1, 64) formatına çevir
-    cell_final = cell_norm.reshape(1, -1)
-    
-    # Tahmin yürüt
-    prediction = knn.predict(cell_final)
-    
-    return int(prediction[0]) 
+    try:
+        text = pytesseract.image_to_string(cleaned, config=custom_config)
+        text = text.strip()
+        if text and text.isdigit():
+            return int(text[0])
+    except Exception as e:
+        print(f"OCR Hatası: {e}")
+        
+    return 0
 
 def get_perspective_transform(image):
-    # (Önceki OpenCV Perspektif kodu aynen kalıyor)
+    """
+    Görüntüdeki en büyük kareyi (Sudoku tahtası) bul ve perspektifini düzelt.
+    """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # Adaptif threshold ile ızgarayı belirginleştir
     thresh = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                   cv2.THRESH_BINARY_INV, 11, 2)
 
@@ -66,21 +88,33 @@ def get_perspective_transform(image):
     if not contours:
         return None
     
-    biggest = max(contours, key=cv2.contourArea)
-    peri = cv2.arcLength(biggest, True)
-    approx = cv2.approxPolyDP(biggest, 0.02 * peri, True)
+    # Alan büyüklüğüne göre sırala
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    
+    for cnt in contours:
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
 
-    if len(approx) == 4:
-        # Perspektif düzeltme (Warp Perspective)
-        pts = approx.reshape(4, 2)
-        rect = np.zeros((4, 2), dtype="float32")
-        s = pts.sum(axis=1); rect[0] = pts[np.argmin(s)]; rect[2] = pts[np.argmax(s)]
-        diff = np.diff(pts, axis=1); rect[1] = pts[np.argmin(diff)]; rect[3] = pts[np.argmax(diff)]
+        if len(approx) == 4:
+            # 4 köşeli bir yapı bulduk (Sudoku tahtası)
+            pts = approx.reshape(4, 2)
+            rect = np.zeros((4, 2), dtype="float32")
+            
+            # Köşeleri sırala: [sol-üst, sağ-üst, sağ-alt, sol-alt]
+            s = pts.sum(axis=1)
+            rect[0] = pts[np.argmin(s)]
+            rect[2] = pts[np.argmax(s)]
+            
+            diff = np.diff(pts, axis=1)
+            rect[1] = pts[np.argmin(diff)]
+            rect[3] = pts[np.argmax(diff)]
 
-        dst = np.array([[0, 0], [450, 0], [450, 450], [0, 450]], dtype="float32")
-        M = cv2.getPerspectiveTransform(rect, dst)
-        warped = cv2.warpPerspective(gray, M, (450, 450))
-        return warped
+            side = 450
+            dst = np.array([[0, 0], [side, 0], [side, side], [0, side]], dtype="float32")
+            M = cv2.getPerspectiveTransform(rect, dst)
+            warped = cv2.warpPerspective(gray, M, (side, side))
+            return warped
+            
     return None
 
 @app.post("/api/scan")
@@ -90,15 +124,17 @@ async def scan(file: UploadFile = File(...)):
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # 1. Sudoku Tahtasını Bul ve Düzelt (OpenCV)
+        # 1. Sudoku Tahtasını Bul ve Düzelt
         warped = get_perspective_transform(img)
         
         if warped is None:
-            return {"status": "error", "message": "Sudoku bulunamadı. Lütfen kamerayı sabit tutun."}
+            return {"status": "error", "message": "Sudoku bulunamadı. Lütfen tahtayı tam kareye alın."}
 
-        # 2. Rakam Tanıma İçin İkinci Bir Threshold (Binary)
-        # Rakam tanıma için siyah-beyaz görüntü şarttır.
-        _, warped_thresh = cv2.threshold(warped, 128, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        # 2. Rakam Tanıma İçin Threshold
+        # Otsu thresholding daha iyi sonuç verebilir
+        blur_warped = cv2.GaussianBlur(warped, (3, 3), 0)
+        thresh_warped = cv2.adaptiveThreshold(blur_warped, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                             cv2.THRESH_BINARY_INV, 11, 2)
 
         # 3. 81 Hücreye Böl ve Rakamları Oku (9x9)
         grid = []
@@ -107,11 +143,8 @@ async def scan(file: UploadFile = File(...)):
         for i in range(9):
             row = []
             for j in range(9):
-                cell = warped_thresh[i*cell_size:(i+1)*cell_size, j*cell_size:(j+1)*cell_size]
-                # Kenarlardaki çizgi gürültüsünü atmak için %10 crop
-                h, w = cell.shape
-                cell = cell[int(h*0.1):int(h*0.9), int(w*0.1):int(w*0.9)]
-                
+                # Hücreyi kes
+                cell = thresh_warped[i*cell_size:(i+1)*cell_size, j*cell_size:(j+1)*cell_size]
                 digit = predict_digit(cell)
                 row.append(digit)
             grid.append(row)

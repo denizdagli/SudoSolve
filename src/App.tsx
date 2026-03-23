@@ -58,7 +58,7 @@ export default function App() {
   const [selectedCell, setSelectedCell] = useState<[number, number] | null>(null);
   const [history, setHistory] = useState<SudokuGridType[]>([]);
   const [solveTimeMs, setSolveTimeMs] = useState<number>(0);
-  const [processingMessage, setProcessingMessage] = useState('Initializing OCR engine...');
+  const [processingMessage, setProcessingMessage] = useState('Initializing scanning engine...');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // ─── Grid Setup ───
