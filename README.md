@@ -10,12 +10,24 @@ View your app in AI Studio: https://ai.studio/apps/7823730b-af84-4ef8-a005-4aba7
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+**Prerequisites:** Node.js, Python 3.10+
 
-
+### 1. Frontend Setup (React)
 1. Install dependencies:
    `npm install`
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+### 2. Backend Setup (Python)
+The backend uses FastAPI and Gemini AI for Sudoku recognition.
+1. Go to the API directory:
+   `cd api`
+2. Activate the virtual environment:
+   `source venv/bin/activate`
+3. Install dependencies (if not already done):
+   `pip install -r requirements.txt`
+4. Run the backend server:
+   `python3 index.py` (veya `fastapi dev index.py`)
+
 # SudoSolve

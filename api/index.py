@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 import os
 import json
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -10,12 +11,11 @@ from typing import Optional, List
 
 load_dotenv()
 
-# Gemini Yapılandırması
+# Gemini Yapılandırması (Yeni SDK: google-genai)
 GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Kullanıcı tarafından belirtilen özel model (Gemini 3.1 Pro Preview sürümüne geçildi)
+# Kullanıcı tarafından belirtilen özel model
 MODEL_NAME: str = "gemini-3.1-pro-preview"
 
 app = FastAPI()
@@ -75,11 +75,9 @@ def get_perspective_transform(image):
 
 async def gemini_ocr(image_bytes: bytes) -> Optional[List[List[int]]]:
     """
-    Gemini API kullanarak Sudoku gridini tanı.
+    Yeni google-genai SDK kullanarak Sudoku gridini tanı.
     """
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
-        
         prompt = """
         Bu bir Sudoku bulmacası görüntüsüdür. Lütfen bu görüntüdeki Sudoku gridini analiz et ve rakamları bir JSON dizisi olarak döndür.
         Boş hücreler için 0 kullan.
@@ -88,15 +86,15 @@ async def gemini_ocr(image_bytes: bytes) -> Optional[List[List[int]]]:
         Markdown veya açıklama ekleme, sadece JSON.
         """
         
-        contents = [
-            prompt,
-            {
-                "mime_type": "image/jpeg",
-                "data": image_bytes
-            }
-        ]
+        # Yeni SDK formatında içerik oluşturma
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+            ]
+        )
         
-        response = model.generate_content(contents)
         text_response: str = response.text.strip()
         
         if "```json" in text_response:
@@ -115,7 +113,7 @@ async def gemini_ocr(image_bytes: bytes) -> Optional[List[List[int]]]:
 @app.post("/api/scan")
 async def scan(file: UploadFile = File(...)):
     """
-    Kamera veya yüklenen fotoğraftan Sudoku gridini Gemini ile oku.
+    Kamera veya yüklenen fotoğraftan Sudoku gridini Gemini (Yeni SDK) ile oku.
     """
     try:
         data = await file.read()
@@ -149,3 +147,7 @@ async def scan(file: UploadFile = File(...)):
     except Exception as err:
         print(f"HATA: {str(err)}")
         return {"status": "error", "message": str(err)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
